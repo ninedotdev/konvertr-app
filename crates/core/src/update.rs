@@ -13,8 +13,8 @@ pub const MANIFEST_URL: &str =
     "https://github.com/ninedotdev/konvertr-app/releases/latest/download/manifest.json";
 
 /// Team ID the downloaded bundle must be signed by; an update signed by anyone
-/// else is refused. Set to `None` while releases are still ad-hoc signed.
-pub const EXPECTED_TEAM_ID: Option<&str> = None;
+/// else is refused. `None` accepts any valid signature (ad-hoc dev builds).
+pub const EXPECTED_TEAM_ID: Option<&str> = Some("3HV82GAPMK");
 
 pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
