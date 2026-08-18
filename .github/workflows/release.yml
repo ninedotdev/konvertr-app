@@ -18,6 +18,14 @@ env:
 jobs:
   macos:
     runs-on: macos-14
+    # Job-level env, because `secrets` is not a context step-level `if` can read.
+    env:
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,10 +51,7 @@ jobs:
       # Signing runs only when the Developer ID secrets are present, so forks
       # and secret-less runs still produce an (ad-hoc) build.
       - name: Import Developer ID certificate
-        if: ${{ secrets.MACOS_CERT_P12 != '' }}
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        if: env.MACOS_CERT_P12 != ''
         run: |
           KEYCHAIN=$RUNNER_TEMP/build.keychain
           KEYCHAIN_PASSWORD=$(uuidgen)
@@ -63,13 +68,12 @@ jobs:
 
       - name: Package
         env:
-          IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-          NOTARIZE: ${{ secrets.APPLE_ID != '' && '1' || '0' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           DMG: "1"
-        run: scripts/package-macos.sh
+        run: |
+          # Fall back to ad-hoc signing when the Developer ID secrets are absent.
+          [ -n "$IDENTITY" ] || export IDENTITY="-"
+          [ -n "$APPLE_ID" ] && export NOTARIZE=1 || export NOTARIZE=0
+          scripts/package-macos.sh
 
       - name: Archive app
         run: |
