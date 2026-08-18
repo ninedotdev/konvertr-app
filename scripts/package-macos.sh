@@ -80,15 +80,20 @@ else
   codesign --verify --deep --strict --verbose=2 "$APP"
 fi
 
+# Bounded wait: a queued submission must fail the build, not hang it. Apple's
+# first submission for a new Developer ID can queue for hours.
+notarize() {
+  xcrun notarytool submit "$1" \
+    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+    --wait --timeout "${NOTARIZE_TIMEOUT:-45m}"
+}
+
 if [ "${NOTARIZE:-0}" = "1" ]; then
   ZIP="target/bundle/Konvertr-notarize.zip"
   ditto -c -k --keepParent "$APP" "$ZIP"
-  # Bounded wait: a queued submission must fail the build, not hang it. Apple's
-  # first submission for a new Developer ID often queues for hours.
-  xcrun notarytool submit "$ZIP" \
-    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
-    --wait --timeout "${NOTARIZE_TIMEOUT:-45m}"
-  # Staple before packaging so the artifact carries its ticket offline.
+  notarize "$ZIP"
+  # Staple before packaging so the app carries its ticket offline — the
+  # updater's tarball ships this bundle as-is.
   xcrun stapler staple "$APP"
   rm -f "$ZIP"
 fi
@@ -102,7 +107,12 @@ if [ "${DMG:-0}" = "1" ]; then
   hdiutil create -volname "Konvertr" -srcfolder "$STAGE" -ov -format ULFO "$DMG_PATH" >/dev/null
   rm -rf "$STAGE"
   [ "$IDENTITY" = "-" ] || codesign --force --timestamp --sign "$IDENTITY" "$DMG_PATH"
-  [ "${NOTARIZE:-0}" = "1" ] && xcrun stapler staple "$DMG_PATH"
+  if [ "${NOTARIZE:-0}" = "1" ]; then
+    # The disk image needs its own ticket: stapling only works on what was
+    # submitted, and Gatekeeper checks the .dmg the user downloads.
+    notarize "$DMG_PATH"
+    xcrun stapler staple "$DMG_PATH"
+  fi
   echo "built $DMG_PATH"
 fi
 
