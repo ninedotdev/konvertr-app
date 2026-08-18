@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/ui", "apps/konvrt"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+konvrt-core = { path = "crates/core" }
+konvrt-ui = { path = "crates/ui" }
+
+# gpui core + platform backends, always pinned to the same rev.
+# wingleeio fork = upstream zed + BackdropBlur/EdgeFade/glass-window fixes (same fork comet uses)
+gpui = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d" }
+gpui_platform = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d", features = [
+    "wayland",
+    "x11",
+    "font-kit",
+    "runtime_shaders",
+] }
+
+anyhow = "1"
+base64 = "0.22"
+csv = "1"
+lopdf = "0.34"
+md-5 = "0.10"
+printpdf = "0.7"
+pulldown-cmark = "0.12"
+regex = "1"
+similar = "2"
+toml = "0.8"
+sha1 = "0.10"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+unicode-segmentation = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff", "ico", "rayon"] }
+ravif = "0.11"
+rgb = "0.8"
+webp = "0.3"
+
+# gpui is unusably slow at opt-level 0, so optimize all deps in dev (zed's approach)
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

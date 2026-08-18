@@ -1,0 +1,86 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build (e.g. v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Version guard
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$TAG" != "v$CARGO_VERSION" ]; then
+            echo "tag $TAG does not match Cargo.toml version $CARGO_VERSION"
+            exit 1
+          fi
+
+      - name: Bundle ffmpeg and yt-dlp
+        run: |
+          scripts/fetch-ffmpeg.sh
+          scripts/fetch-ytdlp.sh
+
+      # Signing runs only when the Developer ID secrets are present, so forks
+      # and secret-less runs still produce an (ad-hoc) build.
+      - name: Import Developer ID certificate
+        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$MACOS_CERT_P12" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import $RUNNER_TEMP/cert.p12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          rm $RUNNER_TEMP/cert.p12
+
+      - name: Package
+        env:
+          IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          NOTARIZE: ${{ secrets.APPLE_ID != '' && '1' || '0' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          DMG: "1"
+        run: scripts/package-macos.sh
+
+      - name: Archive app
+        run: |
+          cd target/bundle
+          tar -czf "Konvertr-macos-arm64.tar.gz" Konvertr.app
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: |
+            target/bundle/*.dmg
+            target/bundle/Konvertr-macos-arm64.tar.gz

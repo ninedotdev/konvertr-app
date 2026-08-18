@@ -1,0 +1,8 @@
+[package]
+name = "konvrt"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+konvrt-ui.workspace = true
