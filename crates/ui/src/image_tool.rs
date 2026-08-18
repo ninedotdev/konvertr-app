@@ -452,6 +452,8 @@ impl ImageTool {
                         .child(if self.converting {
                             shimmer(div().child("converting…"), "convert-btn-shimmer")
                                 .into_any_element()
+                        } else if pending == 0 {
+                            div().child("all converted").into_any_element()
                         } else if pending == 1 {
                             div().child("convert 1 image").into_any_element()
                         } else {
