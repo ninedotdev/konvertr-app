@@ -71,6 +71,9 @@ fn open_main_window(cx: &mut App) {
                 traffic_light_position: Some(point(px(14.), px(14.))),
             }),
             window_background,
+            // We own the titlebar: drag and double-click-to-zoom are wired to
+            // the strip in `shell`, so buttons up there can't zoom the window.
+            app_owns_titlebar_drag: true,
             app_id: Some("konvrt".into()),
             ..Default::default()
         },

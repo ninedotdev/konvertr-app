@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui::{Context, Entity, ObjectFit, Subscription, Task, Window, div, img, prelude::*, px};
+use gpui::{
+    Context, Entity, MouseButton, MouseMoveEvent, ObjectFit, Subscription, Task, Window,
+    WindowControlArea, div, img, prelude::*, px,
+};
 
 use crate::audio_tool::AudioTool;
 use crate::b64_tool::B64Tool;
@@ -169,6 +172,9 @@ pub struct Shell {
     right_tween: Option<WidthTween>,
     /// Repaint driver while a tween is mid-flight.
     frame_task: Option<Task<()>>,
+    /// Armed by a mouse-down on the titlebar strip; the next move hands the
+    /// drag to the compositor.
+    titlebar_should_move: bool,
     updater: Entity<Updater>,
     preview: Option<PathBuf>,
     _history_observer: Subscription,
@@ -189,6 +195,7 @@ impl Shell {
             sidebar_tween: None,
             right_tween: None,
             frame_task: None,
+            titlebar_should_move: false,
             updater: cx.new(Updater::new),
             preview: None,
             _history_observer: history_observer,
@@ -329,6 +336,7 @@ impl Shell {
                 .cursor_pointer()
                 .text_color(if active { theme.text } else { theme.text_muted })
                 .hover(|s| s.bg(theme.surface_hover))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.active_tab = ix;
                     cx.notify();
@@ -344,6 +352,7 @@ impl Shell {
                         .px(px(2.))
                         .text_color(theme.text_faint)
                         .hover(|s| s.text_color(theme.danger))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.close_tab(ix, cx);
@@ -354,30 +363,76 @@ impl Shell {
             bar = bar.child(tab);
         }
 
-        bar.child(
-            titlebar_button(theme, "add-tab", icons::PLUS)
-                .on_click(cx.listener(|this, _, _, cx| this.add_tab(cx))),
-        )
-        .child(div().flex_1()) // drag region
-        .child(self.updater.clone())
-        .child(
-            titlebar_button(
-                theme,
-                "toggle-theme",
-                match theme.appearance {
-                    Appearance::Dark => icons::SUN,
-                    Appearance::Light => icons::MOON,
-                },
+        let bar = bar
+            .child(
+                titlebar_button(theme, "add-tab", icons::PLUS)
+                    .on_click(cx.listener(|this, _, _, cx| this.add_tab(cx))),
             )
-            .on_click(cx.listener(|_, _, _, cx| Theme::toggle(cx))),
-        )
-        .child(
-            titlebar_button(theme, "toggle-right", icons::SIDEBAR_RIGHT)
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_right(cx))),
-        )
+            .child(div().flex_1()) // drag region
+            .child(self.updater.clone())
+            .child(
+                titlebar_button(
+                    theme,
+                    "toggle-theme",
+                    match theme.appearance {
+                        Appearance::Dark => icons::SUN,
+                        Appearance::Light => icons::MOON,
+                    },
+                )
+                .on_click(cx.listener(|_, _, _, cx| Theme::toggle(cx))),
+            )
+            .child(
+                titlebar_button(theme, "toggle-right", icons::SIDEBAR_RIGHT)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_right(cx))),
+            );
+
+        self.titlebar_drag_region("titlebar-strip", bar, cx)
+    }
+
+    /// Make the titlebar strip drag the window (zed's platform-titlebar
+    /// pattern): hand the drag to the compositor once the pointer moves with
+    /// the button down, and let a double click do the system zoom. Controls
+    /// inside the strip swallow their own mouse-downs, so clicking one twice
+    /// never reaches this.
+    fn titlebar_drag_region(
+        &self,
+        id: &'static str,
+        el: gpui::Div,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        el.id(id)
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.titlebar_should_move = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.titlebar_should_move = false),
+            )
+            .on_mouse_down_out(cx.listener(|this, _, _, _| this.titlebar_should_move = false))
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, _| {
+                // Only while the button is actually held: on macOS this starts
+                // AppKit's native drag session, and a stale flag would start it
+                // from a mere hover between the clicks of a double click.
+                if this.titlebar_should_move && event.pressed_button == Some(MouseButton::Left) {
+                    this.titlebar_should_move = false;
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event, window, _| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            })
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let strip = self.titlebar_drag_region(
+            "sidebar-strip",
+            div().flex_none().h(px(Theme::TITLEBAR_HEIGHT)),
+            cx,
+        );
         let theme = Theme::of(cx);
         let current = self.tabs[self.active_tab].active;
         let mut sidebar = div()
@@ -392,8 +447,9 @@ impl Shell {
             })
             .px(px(Theme::SPACE_SM))
             .gap(px(Theme::SPACE_XS))
-            // top strip: traffic lights + the overlay cluster live here
-            .child(div().flex_none().h(px(Theme::TITLEBAR_HEIGHT)))
+            // Top strip: traffic lights + the overlay cluster live here, and
+            // it drags the window like the main titlebar does.
+            .child(strip)
             .child(
                 div()
                     .px(px(Theme::SPACE_SM))
@@ -450,6 +506,11 @@ impl Shell {
     /// Right sidebar: session history + the counters every ad-riddled
     /// converter site earned us.
     fn render_history(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let strip = self.titlebar_drag_region(
+            "history-strip",
+            div().flex_none().h(px(Theme::TITLEBAR_HEIGHT)),
+            cx,
+        );
         let theme = Theme::of(cx);
         let (stats, rows) = {
             let store = cx.global::<HistoryStore>();
@@ -495,7 +556,7 @@ impl Shell {
             })
             .px(px(Theme::SPACE_MD))
             .gap(px(Theme::SPACE_SM))
-            .child(div().flex_none().h(px(Theme::TITLEBAR_HEIGHT)))
+            .child(strip)
             .child(
                 div()
                     .flex()
@@ -675,6 +736,9 @@ fn titlebar_button(
         .rounded(px(Theme::CONTROL_RADIUS))
         .cursor_pointer()
         .hover(|s| s.bg(theme.surface_hover))
+        // Keep clicks off the drag strip: a quick double click on a control
+        // would otherwise zoom the window.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(icon(icon_path).size(px(15.)).text_color(theme.text_muted))
 }
 

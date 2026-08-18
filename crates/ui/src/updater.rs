@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
-use gpui::{Context, Task, div, prelude::*, px};
+use gpui::{Context, MouseButton, Task, div, prelude::*, px};
 use konvrt_core::update::{self, Available};
 
 use crate::theme::Theme;
@@ -127,6 +127,9 @@ impl Render for Updater {
                 .py(px(2.))
                 .rounded(px(Theme::CONTROL_RADIUS))
                 .text_size(px(10.))
+                // The pill sits on the titlebar drag strip; keep double clicks
+                // on it from zooming the window.
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(label)
         };
 
