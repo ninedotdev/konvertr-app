@@ -83,9 +83,11 @@ fi
 if [ "${NOTARIZE:-0}" = "1" ]; then
   ZIP="target/bundle/Konvertr-notarize.zip"
   ditto -c -k --keepParent "$APP" "$ZIP"
+  # Bounded wait: a queued submission must fail the build, not hang it. Apple's
+  # first submission for a new Developer ID often queues for hours.
   xcrun notarytool submit "$ZIP" \
     --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
-    --wait
+    --wait --timeout "${NOTARIZE_TIMEOUT:-45m}"
   # Staple before packaging so the artifact carries its ticket offline.
   xcrun stapler staple "$APP"
   rm -f "$ZIP"
