@@ -24,6 +24,7 @@ use crate::pdf_tool::PdfTool;
 use crate::svg_tool::SvgTool;
 use crate::textkit_tool::TextKitTool;
 use crate::theme::{Appearance, Theme};
+use crate::updater::Updater;
 use crate::video_tool::VideoTool;
 use crate::vstudio_tool::VStudioTool;
 use crate::yoinks_tool::YoinksTool;
@@ -168,6 +169,7 @@ pub struct Shell {
     right_tween: Option<WidthTween>,
     /// Repaint driver while a tween is mid-flight.
     frame_task: Option<Task<()>>,
+    updater: Entity<Updater>,
     preview: Option<PathBuf>,
     _history_observer: Subscription,
 }
@@ -187,6 +189,7 @@ impl Shell {
             sidebar_tween: None,
             right_tween: None,
             frame_task: None,
+            updater: cx.new(Updater::new),
             preview: None,
             _history_observer: history_observer,
         }
@@ -356,6 +359,7 @@ impl Shell {
                 .on_click(cx.listener(|this, _, _, cx| this.add_tab(cx))),
         )
         .child(div().flex_1()) // drag region
+        .child(self.updater.clone())
         .child(
             titlebar_button(
                 theme,

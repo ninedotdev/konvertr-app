@@ -21,6 +21,7 @@ mod svg_tool;
 mod text_input;
 mod textkit_tool;
 mod theme;
+mod updater;
 mod video_tool;
 mod vstudio_tool;
 mod yoinks_tool;

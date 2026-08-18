@@ -25,6 +25,7 @@ anyhow = "1"
 base64 = "0.22"
 csv = "1"
 lopdf = "0.34"
+ureq = { version = "2", features = ["json"] }
 md-5 = "0.10"
 printpdf = "0.7"
 pulldown-cmark = "0.12"

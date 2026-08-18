@@ -60,11 +60,19 @@ The workspace splits into `crates/core` (pure conversion logic, no UI deps,
 unit-tested), `crates/ui` (the whole gpui app), and `apps/konvrt` (a thin
 binary). ffmpeg and yt-dlp ship inside the bundle, so nothing needs Homebrew.
 
-### Releases
+### Releases and auto-update
 
 Tag `vX.Y.Z` matching the workspace version and push it — the release workflow
 builds, signs with Developer ID, notarises, staples, and drafts a release with
-the `.dmg` and `.tar.gz`. It needs these repository secrets:
+the `.dmg`, the update tarball, and a `manifest.json`. Publishing that draft is
+what makes the URLs live.
+
+The app checks `releases/latest/download/manifest.json` on launch and shows an
+update pill in the titlebar: one click downloads the tarball, verifies its
+checksum and signature, swaps the bundle, and offers a restart. Builds run from
+`cargo run` never self-update — only an installed `.app` does. Once you have a
+Developer ID, set `EXPECTED_TEAM_ID` in `crates/core/src/update.rs` so an update
+signed by anyone else is refused. It needs these repository secrets:
 
 | Secret | What it is |
 | --- | --- |

@@ -14,6 +14,7 @@ pub mod imgkit;
 pub mod pdf;
 pub mod svg;
 pub mod textkit;
+pub mod update;
 pub mod video;
 pub mod vstudio;
 pub mod yoinks;

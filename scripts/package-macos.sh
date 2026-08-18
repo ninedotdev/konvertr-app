@@ -92,7 +92,7 @@ if [ "${NOTARIZE:-0}" = "1" ]; then
 fi
 
 if [ "${DMG:-0}" = "1" ]; then
-  DMG_PATH="target/bundle/Konvertr-${VERSION}.dmg"
+  DMG_PATH="target/bundle/Konvertr-macos-$(uname -m | sed s/aarch64/arm64/).dmg"
   STAGE=$(mktemp -d)
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
