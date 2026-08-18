@@ -338,6 +338,30 @@ mod tests {
         assert!(minimal.notes.is_none());
     }
 
+    /// Full staging path against the published release: download, checksum,
+    /// unpack, signature check. Network-bound, so it stays out of the default
+    /// run — `cargo test -p konvrt-core -- --ignored`.
+    #[test]
+    #[ignore]
+    fn stages_the_published_release() {
+        let body = ureq::get(MANIFEST_URL)
+            .call()
+            .expect("fetching the manifest")
+            .into_string()
+            .unwrap();
+        let manifest: Manifest = serde_json::from_str(&body).expect("parsing the manifest");
+        let artifact = manifest
+            .platforms
+            .get(&platform_key())
+            .expect("no artifact for this platform");
+
+        let progress = Arc::new(AtomicU8::new(0));
+        let staged = stage(artifact, &progress).expect("staging the update");
+        assert!(staged.join("Contents/MacOS").exists(), "not an app bundle");
+        assert_eq!(progress.load(Ordering::Relaxed), 100);
+        let _ = std::fs::remove_dir_all(staged.parent().unwrap());
+    }
+
     #[test]
     fn platform_key_is_the_artifact_naming() {
         let key = platform_key();
