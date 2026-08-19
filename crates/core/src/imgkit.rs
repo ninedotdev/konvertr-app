@@ -468,7 +468,9 @@ mod file_tests {
         }
     }
 
+    /// AVIF decoding rides on macOS's `sips`; other platforms reject it.
     #[test]
+    #[cfg(target_os = "macos")]
     fn accepts_avif_input() {
         let dir = tmp_dir("avif");
         let src = write_sample(&dir, "seed.png", ImageFormat::Png);

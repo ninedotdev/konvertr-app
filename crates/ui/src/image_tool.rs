@@ -222,7 +222,11 @@ impl ImageTool {
             theme,
             self.files.is_empty(),
             "drag & drop your images here",
-            "or click to browse · png · jpeg · webp · gif · bmp · tiff · ico",
+            if cfg!(target_os = "macos") {
+                "or click to browse · png · jpeg · webp · avif · heic · gif · bmp · tiff · ico"
+            } else {
+                "or click to browse · png · jpeg · webp · gif · bmp · tiff · ico"
+            },
         )
         .on_click(cx.listener(|this, _, _, cx| this.browse(cx)))
         .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {

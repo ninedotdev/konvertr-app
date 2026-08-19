@@ -621,7 +621,12 @@ mod tests {
         ));
         assert!(has_pair(&a, "--print", "after_move:filepath"));
         assert!(a.contains(&"--no-simulate".to_string()));
-        assert!(has_pair(&a, "-o", "/home/u/Downloads/%(title).60s.%(ext)s"));
+        // Built through Path so the separator matches the host's.
+        let expected_out = Path::new("/home/u/Downloads")
+            .join("%(title).60s.%(ext)s")
+            .to_string_lossy()
+            .into_owned();
+        assert!(has_pair(&a, "-o", &expected_out));
         assert!(has_pair(&a, "--ffmpeg-location", "/opt/ffmpeg"));
     }
 

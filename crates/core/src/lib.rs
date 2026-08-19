@@ -105,10 +105,16 @@ impl OutputFormat {
     }
 }
 
-/// Input extensions the image converter accepts. avif/heic/heif decode through
-/// [`decode_image`]'s macOS fallback.
-pub const INPUT_EXTENSIONS: [&str; 12] = [
+/// Input extensions the image converter accepts. avif/heic/heif ride on
+/// [`decode_image`]'s macOS fallback, so they are only offered there.
+#[cfg(target_os = "macos")]
+pub const INPUT_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "ico", "avif", "heic", "heif",
+];
+
+#[cfg(not(target_os = "macos"))]
+pub const INPUT_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "ico",
 ];
 
 pub fn is_supported_input(path: &Path) -> bool {

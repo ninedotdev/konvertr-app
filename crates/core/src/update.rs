@@ -344,8 +344,9 @@ mod tests {
         let key = platform_key();
         assert!(pick(&manifest("99.0.0", &key)).is_some());
         assert!(pick(&manifest("0.0.1", &key)).is_none());
-        // Newer, but nothing published for us.
-        assert!(pick(&manifest("99.0.0", "windows-x86_64")).is_none());
+        // Newer, but nothing published for us. The key is deliberately one no
+        // runner can have, so this holds on every platform.
+        assert!(pick(&manifest("99.0.0", "plan9-vax")).is_none());
     }
 
     #[test]
