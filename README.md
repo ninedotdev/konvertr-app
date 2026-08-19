@@ -43,8 +43,26 @@ re-encode) and checksums (MD5 / SHA-1 / SHA-256 with live verification).
 
 ## Install
 
-Grab the latest `.dmg` from [Releases](../../releases) and drag Konvertr to
-Applications. macOS 12+, Apple Silicon.
+**macOS** (the tested platform): grab the latest `.dmg` from
+[Releases](../../releases) and drag Konvertr to Applications. It is signed with
+a Developer ID and notarised, so it opens with a double click, and it updates
+itself from inside the app. Requires macOS 12 or newer on Apple Silicon.
+
+**Windows and Linux**: builds are published for both, but read this first.
+
+> They are built by CI and **have never been run by anyone**. Every tool here
+> is portable Rust, so they ought to work, but nothing on those platforms has
+> been tested: not the window chrome, not drag and drop, not the file dialogs.
+> Treat them as a starting point, and please open an issue with what breaks.
+>
+> The Windows build is also **unsigned**, so SmartScreen will warn you the
+> first time: More info, then Run anyway. Signing it needs a code signing
+> certificate we do not have.
+>
+> Neither platform self updates. The update button is macOS only for now, so
+> grab a new archive from Releases when a version ships.
+
+Windows ships as a `.zip` and Linux as a `.tar.gz`; unpack and run the binary.
 
 ## Development
 
@@ -59,6 +77,11 @@ scripts/package-macos.sh     # build Konvertr.app
 The workspace splits into `crates/core` (pure conversion logic, no UI deps,
 unit-tested), `crates/ui` (the whole gpui app), and `apps/konvrt` (a thin
 binary). ffmpeg and yt-dlp ship inside the bundle, so nothing needs Homebrew.
+
+Building on Linux needs gpui's system libraries: `libxkbcommon-dev
+libxkbcommon-x11-dev libwayland-dev libx11-dev libxcb1-dev libx11-xcb-dev
+libfontconfig1-dev libfreetype-dev libasound2-dev libvulkan-dev pkg-config
+cmake`.
 
 ### Releases and auto-update
 

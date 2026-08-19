@@ -38,7 +38,7 @@ impl Updater {
             task: None,
             poll: None,
         };
-        if updater.bundle.is_some() {
+        if update::self_update_supported() && updater.bundle.is_some() {
             updater.check(cx);
         }
         updater

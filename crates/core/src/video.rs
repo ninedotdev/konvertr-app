@@ -146,8 +146,15 @@ pub fn is_supported_input(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Platform binary name: `ffmpeg.exe` on Windows, `ffmpeg` elsewhere.
+pub const FFMPEG_EXE: &str = if cfg!(windows) {
+    "ffmpeg.exe"
+} else {
+    "ffmpeg"
+};
+
 /// Locate an ffmpeg binary: `KONVRT_FFMPEG` env override, next to the app
-/// executable, the macOS bundle's Resources dir, the repo's `dist/bin/ffmpeg`
+/// executable, the macOS bundle's Resources dir, the repo's `dist/bin`
 /// (so `cargo run` uses the bundled one), then each dir in PATH.
 pub fn find_ffmpeg() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("KONVRT_FFMPEG") {
@@ -159,19 +166,22 @@ pub fn find_ffmpeg() -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
-        for candidate in [dir.join("ffmpeg"), dir.join("../Resources/ffmpeg")] {
+        for candidate in [
+            dir.join(FFMPEG_EXE),
+            dir.join("../Resources").join(FFMPEG_EXE),
+        ] {
             if candidate.is_file() {
                 return Some(candidate);
             }
         }
     }
-    let dev = Path::new("dist/bin/ffmpeg");
+    let dev = Path::new("dist/bin").join(FFMPEG_EXE);
     if dev.is_file() {
-        return Some(dev.to_path_buf());
+        return Some(dev);
     }
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            let candidate = dir.join("ffmpeg");
+            let candidate = dir.join(FFMPEG_EXE);
             if candidate.is_file() {
                 return Some(candidate);
             }

@@ -14,6 +14,11 @@ use std::sync::{Arc, Mutex};
 /// executable, the macOS bundle's Resources dir, `dist/bin/yt-dlp` relative to
 /// the cwd (dev builds), then each dir in PATH. Mirrors `find_ffmpeg`.
 pub fn find_ytdlp() -> Option<PathBuf> {
+    const YTDLP_EXE: &str = if cfg!(windows) {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
+    };
     if let Some(p) = std::env::var_os("KONVRT_YTDLP") {
         let p = PathBuf::from(p);
         if p.is_file() {
@@ -23,19 +28,22 @@ pub fn find_ytdlp() -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
-        for candidate in [dir.join("yt-dlp"), dir.join("../Resources/yt-dlp")] {
+        for candidate in [
+            dir.join(YTDLP_EXE),
+            dir.join("../Resources").join(YTDLP_EXE),
+        ] {
             if candidate.is_file() {
                 return Some(candidate);
             }
         }
     }
-    let dev = Path::new("dist/bin/yt-dlp");
+    let dev = Path::new("dist/bin").join(YTDLP_EXE);
     if dev.is_file() {
-        return Some(dev.to_path_buf());
+        return Some(dev);
     }
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            let candidate = dir.join("yt-dlp");
+            let candidate = dir.join(YTDLP_EXE);
             if candidate.is_file() {
                 return Some(candidate);
             }

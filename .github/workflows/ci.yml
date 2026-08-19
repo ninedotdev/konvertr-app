@@ -10,16 +10,38 @@ env:
 
 jobs:
   test:
-    runs-on: macos-14
+    strategy:
+      # Let every platform report; a red leg should not hide the others.
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # gpui's system dependencies on Linux.
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
+            libxcb1-dev libx11-xcb-dev libfontconfig1-dev libfreetype-dev \
+            libasound2-dev libvulkan-dev pkg-config cmake
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+
+      # Lints once, on macOS — the findings are identical per platform.
       - name: fmt
+        if: matrix.os == 'macos-14'
         run: cargo fmt --all -- --check
+
       - name: test
         run: cargo test --workspace
+
       - name: clippy
+        if: matrix.os == 'macos-14'
         run: cargo clippy --workspace -- -D warnings

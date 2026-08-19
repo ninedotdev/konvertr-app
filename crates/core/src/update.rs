@@ -20,6 +20,12 @@ pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Whether this build can swap itself for a newer one. Only the macOS `.app`
+/// flow is implemented; Windows/Linux users download releases by hand.
+pub fn self_update_supported() -> bool {
+    cfg!(target_os = "macos")
+}
+
 pub fn manifest_url() -> String {
     std::env::var("KONVRT_MANIFEST_URL").unwrap_or_else(|_| MANIFEST_URL.to_string())
 }
@@ -161,6 +167,7 @@ pub fn stage(artifact: &Artifact, progress: &Arc<AtomicU8>) -> Result<PathBuf> {
 }
 
 /// Refuse anything that isn't intact and signed by us.
+#[cfg(target_os = "macos")]
 pub fn verify_signature(app: &Path) -> Result<()> {
     let out = std::process::Command::new("codesign")
         .args(["--verify", "--deep", "--strict"])
@@ -185,8 +192,14 @@ pub fn verify_signature(app: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn verify_signature(_app: &Path) -> Result<()> {
+    bail!("in-app updates are macOS only for now; download the latest release")
+}
+
 /// Swap the installed bundle for the staged one: copy next to the target, then
 /// two renames, restoring the old bundle if the second fails.
+#[cfg(target_os = "macos")]
 pub fn apply(staged: &Path, bundle: &Path) -> Result<()> {
     let parent = bundle.parent().context("the app has no parent directory")?;
     let name = bundle
@@ -213,8 +226,14 @@ pub fn apply(staged: &Path, bundle: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn apply(_staged: &Path, _bundle: &Path) -> Result<()> {
+    bail!("in-app updates are macOS only for now; download the latest release")
+}
+
 /// Waits for this process to exit, then reopens the bundle. The caller quits
 /// right after; opening earlier would race our own shutdown.
+#[cfg(target_os = "macos")]
 pub fn relaunch_after_exit(bundle: &Path) {
     use std::os::unix::process::CommandExt as _;
     let script = format!(
@@ -229,6 +248,11 @@ pub fn relaunch_after_exit(bundle: &Path) {
         .stderr(std::process::Stdio::null())
         .process_group(0)
         .spawn();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn relaunch_after_exit(_bundle: &Path) {
+    // No relaunch flow off macOS; `apply` already refused, so nothing staged.
 }
 
 fn download(url: &str, to: &Path, size: Option<u64>, progress: &Arc<AtomicU8>) -> Result<()> {
@@ -340,7 +364,9 @@ mod tests {
 
     /// Full staging path against the published release: download, checksum,
     /// unpack, signature check. Network-bound, so it stays out of the default
-    /// run — `cargo test -p konvrt-core -- --ignored`.
+    /// run — `cargo test -p konvrt-core -- --ignored`. macOS only: staging
+    /// verifies via codesign and the artifact is an app bundle.
+    #[cfg(target_os = "macos")]
     #[test]
     #[ignore]
     fn stages_the_published_release() {
@@ -366,7 +392,7 @@ mod tests {
     fn platform_key_is_the_artifact_naming() {
         let key = platform_key();
         assert!(
-            key.starts_with("macos-") || key.starts_with("linux-"),
+            key.starts_with("macos-") || key.starts_with("linux-") || key.starts_with("windows-"),
             "{key}"
         );
         assert!(!key.contains("aarch64"), "arm64 is the release naming");

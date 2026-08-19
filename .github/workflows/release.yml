@@ -82,6 +82,8 @@ jobs:
 
       # Stable asset names keep /releases/latest/download/… working release to
       # release, which is what the in-app updater and the website link use.
+      # manifest.json is written here and ONLY here — self-update is
+      # macOS-only, and the other legs must not touch it.
       - name: Archive app and write the update manifest
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
@@ -114,3 +116,69 @@ jobs:
             target/bundle/*.dmg
             target/bundle/Konvertr-macos-*-app.tar.gz
             target/bundle/manifest.json
+
+  # Unsigned + untested (documented in the archives themselves). They run
+  # after macos so exactly one job creates the draft release — concurrent
+  # first uploads from softprops can race into duplicate drafts; afterwards
+  # the action appends assets to the existing draft.
+  linux:
+    runs-on: ubuntu-24.04
+    needs: macos
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # gpui's system dependencies on Linux.
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
+            libxcb1-dev libx11-xcb-dev libfontconfig1-dev libfreetype-dev \
+            libasound2-dev libvulkan-dev pkg-config cmake
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Bundle ffmpeg and yt-dlp
+        run: |
+          scripts/fetch-ffmpeg.sh
+          scripts/fetch-ytdlp.sh
+
+      - name: Package
+        run: scripts/package-linux.sh
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true
+          files: target/bundle/Konvertr-linux-x86_64.tar.gz
+
+  windows:
+    runs-on: windows-2022
+    needs: macos
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Bundle ffmpeg and yt-dlp
+        run: |
+          scripts/fetch-ffmpeg.sh
+          scripts/fetch-ytdlp.sh
+
+      - name: Package
+        run: bash scripts/package-windows.sh
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true
+          files: target/bundle/Konvertr-windows-x86_64.zip
