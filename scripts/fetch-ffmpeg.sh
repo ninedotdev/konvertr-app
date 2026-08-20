@@ -22,6 +22,20 @@ mkdir -p dist/bin
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+# A mirror that answers with an error page still returns HTTP 200, and the
+# archive tools then fail with something cryptic. Catch it here instead.
+check_archive() {
+  local file=$1
+  local size
+  size=$(wc -c < "$file")
+  if [ "$size" -lt 1000000 ]; then
+    echo "download from $URL looks wrong: only ${size} bytes" >&2
+    head -c 200 "$file" >&2
+    echo >&2
+    exit 1
+  fi
+}
+
 case "$OS" in
   Darwin)
     case "$ARCH" in
@@ -31,18 +45,22 @@ case "$OS" in
     esac
     echo "downloading static ffmpeg (macOS $ARCH) from $URL"
     curl -fL --retry 3 -o "$TMP/ffmpeg.zip" "$URL"
+    check_archive "$TMP/ffmpeg.zip"
     unzip -oq "$TMP/ffmpeg.zip" -d "$TMP"
     BIN=$(find "$TMP" -name ffmpeg -type f | head -1)
     ;;
   Linux)
+    # BtbN's builds live on GitHub releases. johnvansickle.com serves an HTML
+    # page instead of the tarball to CI runners, which fails confusingly.
     case "$ARCH" in
-      x86_64) SLUG=amd64 ;;
-      aarch64) SLUG=arm64 ;;
+      x86_64) SLUG=linux64 ;;
+      aarch64) SLUG=linuxarm64 ;;
       *) echo "unsupported Linux arch: $ARCH" >&2; exit 1 ;;
     esac
-    URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${SLUG}-static.tar.xz"
+    URL="https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-${SLUG}-gpl.tar.xz"
     echo "downloading static ffmpeg (Linux $SLUG) from $URL"
     curl -fL --retry 3 -o "$TMP/ffmpeg.tar.xz" "$URL"
+    check_archive "$TMP/ffmpeg.tar.xz"
     tar -xJf "$TMP/ffmpeg.tar.xz" -C "$TMP"
     BIN=$(find "$TMP" -name ffmpeg -type f | head -1)
     ;;
@@ -50,6 +68,7 @@ case "$OS" in
     URL="https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
     echo "downloading static ffmpeg (Windows) from $URL"
     curl -fL --retry 3 -o "$TMP/ffmpeg.zip" "$URL"
+    check_archive "$TMP/ffmpeg.zip"
     unzip -oq "$TMP/ffmpeg.zip" -d "$TMP"
     BIN=$(find "$TMP" -name ffmpeg.exe -type f | head -1)
     ;;
