@@ -284,25 +284,6 @@ impl Shell {
         cx.notify();
     }
 
-    /// The ONE top-left control cluster (comet pattern): pinned at the
-    /// window's top-left in an overlay ABOVE the sidebar and headers, so the
-    /// toggle never moves or remounts when the sidebar collapses.
-    fn render_titlebar_cluster(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::of(cx);
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .h(px(Theme::TITLEBAR_HEIGHT))
-            .flex()
-            .items_center()
-            .pl(px(78.)) // clear the macOS traffic lights
-            .child(
-                titlebar_button(theme, "toggle-sidebar", icons::SIDEBAR_LEFT)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
-            )
-    }
-
     /// Main-column titlebar: tab strip + "+", theme toggle at the right. The
     /// bottom hairline spans only this column — the sidebar separator runs
     /// full height to the very top.
@@ -314,13 +295,20 @@ impl Shell {
             .items_center()
             .w_full()
             .h(px(Theme::TITLEBAR_HEIGHT))
+            // With the sidebar hidden the traffic lights sit over this strip.
             .pl(if self.sidebar_open {
                 px(Theme::SPACE_MD)
             } else {
-                px(78. + 28. + Theme::SPACE_SM) // traffic lights + cluster
+                px(78.)
             })
             .pr(px(Theme::SPACE_MD))
-            .gap(px(Theme::SPACE_SM));
+            .gap(px(Theme::SPACE_SM))
+            .when(!self.sidebar_open, |d| {
+                d.child(
+                    titlebar_button(theme, "expand-sidebar", icons::SIDEBAR_LEFT)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                )
+            });
 
         for ix in 0..self.tabs.len() {
             let active = ix == self.active_tab;
@@ -428,12 +416,21 @@ impl Shell {
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let strip = self.titlebar_drag_region(
-            "sidebar-strip",
-            div().flex_none().h(px(Theme::TITLEBAR_HEIGHT)),
-            cx,
-        );
+        // The traffic lights sit over the left of this strip, so the toggle
+        // goes at the far end, next to the divider (clipeter's layout).
+        let strip_drag = self.titlebar_drag_region("sidebar-strip", div().flex_1().h_full(), cx);
         let theme = Theme::of(cx);
+        let strip = div()
+            .flex_none()
+            .h(px(Theme::TITLEBAR_HEIGHT))
+            .flex()
+            .items_center()
+            .pr(px(10.))
+            .child(strip_drag)
+            .child(
+                titlebar_button(theme, "toggle-sidebar", icons::SIDEBAR_LEFT)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+            );
         let current = self.tabs[self.active_tab].active;
         let mut sidebar = div()
             .flex()
@@ -732,14 +729,14 @@ fn titlebar_button(
         .flex()
         .items_center()
         .justify_center()
-        .size(px(24.))
+        .size(px(26.))
         .rounded(px(Theme::CONTROL_RADIUS))
         .cursor_pointer()
         .hover(|s| s.bg(theme.surface_hover))
         // Keep clicks off the drag strip: a quick double click on a control
         // would otherwise zoom the window.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(icon(icon_path).size(px(15.)).text_color(theme.text_muted))
+        .child(icon(icon_path).size(px(14.)).text_color(theme.text_muted))
 }
 
 impl Render for Shell {
@@ -822,7 +819,6 @@ impl Render for Shell {
                     .child(div().flex().flex_col().flex_1().min_h(px(0.)).child(main)),
             )
             .child(right)
-            .child(self.render_titlebar_cluster(cx))
             .when_some(preview, |d, path| d.child(self.render_preview(&path, cx)))
     }
 }

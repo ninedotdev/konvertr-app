@@ -13,12 +13,41 @@ use std::sync::{Arc, Mutex};
 /// Locate a yt-dlp binary: `KONVRT_YTDLP` env override, next to the app
 /// executable, the macOS bundle's Resources dir, `dist/bin/yt-dlp` relative to
 /// the cwd (dev builds), then each dir in PATH. Mirrors `find_ffmpeg`.
+/// Where a self-updated yt-dlp lives. It can never be the bundled copy: that
+/// one sits inside the signed app, and rewriting it breaks the signature seal.
+pub fn user_ytdlp_path() -> Option<PathBuf> {
+    let name = if cfg!(windows) {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
+    };
+    let dir = if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support/Konvertr/bin")
+    } else if cfg!(windows) {
+        PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Konvertr\\bin")
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share")
+            })
+            .join("konvertr/bin")
+    };
+    Some(dir.join(name))
+}
+
 pub fn find_ytdlp() -> Option<PathBuf> {
     const YTDLP_EXE: &str = if cfg!(windows) {
         "yt-dlp.exe"
     } else {
         "yt-dlp"
     };
+    // A self-updated copy wins: it is always at least as fresh as the bundle.
+    if let Some(updated) = user_ytdlp_path()
+        && updated.is_file()
+    {
+        return Some(updated);
+    }
     if let Some(p) = std::env::var_os("KONVRT_YTDLP") {
         let p = PathBuf::from(p);
         if p.is_file() {
@@ -77,7 +106,29 @@ pub fn is_probable_url(s: &str) -> bool {
 
 /// Self-update a standalone yt-dlp binary (`yt-dlp -U`); returns the last
 /// stdout line ("yt-dlp is up to date" / "Updated yt-dlp to ...").
+/// Copy `ytdlp` somewhere writable and update THAT, so a bundled binary inside
+/// a signed app is never rewritten. Returns the new version.
 pub fn update_ytdlp(ytdlp: &Path) -> Result<String> {
+    let target = user_ytdlp_path().context("no writable place to keep yt-dlp")?;
+    if target != ytdlp {
+        let dir = target.parent().context("yt-dlp path has no directory")?;
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        std::fs::copy(ytdlp, &target)
+            .with_context(|| format!("copying yt-dlp to {}", target.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).ok();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = Command::new("xattr")
+                .args(["-d", "com.apple.quarantine"])
+                .arg(&target)
+                .output();
+        }
+    }
+    let ytdlp = target.as_path();
     let out = Command::new(ytdlp)
         .arg("-U")
         .stdin(Stdio::null())
@@ -383,6 +434,21 @@ pub fn build_download_args(
 
 /// Errors where YouTube's SABR enforcement blocks the default player client;
 /// a fresh extraction via the android client usually gets through.
+/// Errors where a stale extractor is the usual culprit. Sites break yt-dlp
+/// weekly, so these are worth offering a self-update for.
+pub fn suggests_ytdlp_update(error: &str) -> bool {
+    const HINTS: [&str; 7] = [
+        "unable to download",
+        "Requested format is not available",
+        "Sign in to confirm",
+        "Unexpected response",
+        "please report this issue",
+        "Unable to extract",
+        "HTTP Error 403",
+    ];
+    HINTS.iter().any(|hint| error.contains(hint))
+}
+
 pub fn should_fallback(error: &str) -> bool {
     error.contains("403")
         || error.contains("Forbidden")
@@ -592,6 +658,28 @@ mod tests {
                 "mp4".into(),
             ],
         }
+    }
+
+    #[test]
+    fn suggests_updating_on_stale_extractor_errors() {
+        // The TikTok breakage that prompted this.
+        assert!(suggests_ytdlp_update(
+            "Unexpected response from webpage request; please report this issue on"
+        ));
+        assert!(suggests_ytdlp_update(
+            "Unable to extract webpage video data"
+        ));
+        assert!(suggests_ytdlp_update(
+            "unable to download video data: HTTP Error 403"
+        ));
+        assert!(suggests_ytdlp_update("Sign in to confirm you're not a bot"));
+        // A fresher yt-dlp fixes neither of these.
+        assert!(!suggests_ytdlp_update(
+            "Unsupported URL: https://example.com/x"
+        ));
+        assert!(!suggests_ytdlp_update(
+            "Failed to resolve 'www.tiktok.com' (nodename nor servname provided)"
+        ));
     }
 
     #[test]

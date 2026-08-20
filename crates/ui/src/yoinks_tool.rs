@@ -15,13 +15,6 @@ use konvrt_core::yoinks::{
 use crate::text_input::{TextInput, TextInputEvent};
 use crate::theme::Theme;
 
-/// Errors where a stale yt-dlp is the usual culprit — offer self-update.
-const UPDATE_HINTS: [&str; 3] = [
-    "unable to download",
-    "Requested format is not available",
-    "Sign in to confirm",
-];
-
 enum ProbeState {
     Idle,
     Probing,
@@ -250,6 +243,37 @@ impl YoinksTool {
         }));
     }
 
+    /// Self-update yt-dlp, then probe the pasted URL again. Sites break
+    /// extractors weekly, so a failed probe is usually just a stale binary.
+    fn update_and_reprobe(&mut self, cx: &mut Context<Self>) {
+        let Some(ytdlp) = self.ytdlp.clone() else {
+            return;
+        };
+        self.probe_state = ProbeState::Probing;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { update_ytdlp(&ytdlp) })
+                .await;
+            this.update(cx, |tool, cx| {
+                match result {
+                    Ok(_) => {
+                        // find_ytdlp now resolves the updated copy.
+                        tool.ytdlp = find_ytdlp();
+                        tool.probe_state = ProbeState::Idle;
+                        if let Some(url) = tool.last_probed.take() {
+                            tool.start_probe(url, cx);
+                        }
+                    }
+                    Err(e) => tool.probe_state = ProbeState::Failed(format!("{e:#}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Self-update yt-dlp, then re-enqueue the failed job.
     fn update_and_retry(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(ytdlp) = self.ytdlp.clone() else {
@@ -331,14 +355,43 @@ impl YoinksTool {
                     .child("fetching formats…")
                     .into_any_element(),
             ),
-            ProbeState::Failed(e) => Some(
-                div()
-                    .text_size(px(11.))
-                    .text_color(theme.danger)
-                    .line_clamp(2)
-                    .child(e.clone())
-                    .into_any_element(),
-            ),
+            ProbeState::Failed(e) => {
+                let stale = konvrt_core::yoinks::suggests_ytdlp_update(e);
+                Some(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(px(Theme::SPACE_SM))
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(theme.danger)
+                                .line_clamp(2)
+                                .child(e.clone()),
+                        )
+                        .when(stale, |d| {
+                            d.child(
+                                div()
+                                    .id("probe-update-ytdlp")
+                                    .px(px(Theme::SPACE_MD))
+                                    .py(px(4.))
+                                    .rounded(px(Theme::CONTROL_RADIUS))
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .text_size(px(11.))
+                                    .text_color(theme.text_muted)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme.surface_hover))
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.update_and_reprobe(cx)),
+                                    )
+                                    .child("update yt-dlp & retry"),
+                            )
+                        })
+                        .into_any_element(),
+                )
+            }
             ProbeState::Ready(probed) => {
                 let mut meta = probed.title.clone();
                 if let Some(uploader) = &probed.uploader {
@@ -546,7 +599,7 @@ impl YoinksTool {
             );
 
         if let JobStatus::Error(e) = &job.status {
-            let offer_update = UPDATE_HINTS.iter().any(|hint| e.contains(hint));
+            let offer_update = konvrt_core::yoinks::suggests_ytdlp_update(e);
             let mut error_line = div()
                 .flex()
                 .items_start()

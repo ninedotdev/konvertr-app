@@ -5,14 +5,17 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, KeyBinding,
+    App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, ElementId, ElementInputHandler,
+    Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, KeyBinding,
     LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
     fill, point, prelude::*, px, relative, size,
 };
 
 use unicode_segmentation::UnicodeSegmentation;
+
+/// Breathing room kept between the cursor and the right edge while scrolling.
+const CURSOR_MARGIN: Pixels = px(6.);
 
 use crate::theme::Theme;
 
@@ -71,6 +74,9 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    /// How far the text is scrolled left so the cursor stays in view; a long
+    /// URL would otherwise spill past the field's border.
+    scroll_offset: Pixels,
 }
 
 impl EventEmitter<TextInputEvent> for TextInput {}
@@ -87,6 +93,7 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            scroll_offset: px(0.),
         }
     }
 
@@ -240,7 +247,7 @@ impl TextInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.closest_index_for_x(position.x - bounds.left())
+        line.closest_index_for_x(position.x - bounds.left() + self.scroll_offset)
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -445,6 +452,8 @@ struct TextElement {
 
 struct PrepaintState {
     line: Option<ShapedLine>,
+    /// Where the shaped line starts, already shifted by the scroll offset.
+    origin: Point<Pixels>,
     cursor: Option<PaintQuad>,
     selection: Option<PaintQuad>,
 }
@@ -549,7 +558,27 @@ impl Element for TextElement {
             .text_system()
             .shape_line(display_text, font_size, &runs, None);
 
+        // Keep the cursor inside the field: scroll left once the text outgrows
+        // it, and never leave a gap at the right edge when it shrinks again.
         let cursor_pos = line.x_for_index(cursor);
+        let width = bounds.size.width;
+        let mut scroll = self.input.read(cx).scroll_offset;
+        if line.width <= width {
+            scroll = px(0.);
+        } else {
+            if cursor_pos - scroll > width - CURSOR_MARGIN {
+                scroll = cursor_pos - width + CURSOR_MARGIN;
+            }
+            if cursor_pos - scroll < px(0.) {
+                scroll = cursor_pos;
+            }
+            scroll = scroll.clamp(px(0.), line.width - width);
+        }
+        self.input
+            .update(cx, |input, _| input.scroll_offset = scroll);
+        let origin = point(bounds.left() - scroll, bounds.top());
+
+        let cursor_pos = cursor_pos - scroll;
         let (selection, cursor) = if selected_range.is_empty() {
             (
                 None,
@@ -566,11 +595,11 @@ impl Element for TextElement {
                 Some(fill(
                     Bounds::from_corners(
                         point(
-                            bounds.left() + line.x_for_index(selected_range.start),
+                            origin.x + line.x_for_index(selected_range.start),
                             bounds.top(),
                         ),
                         point(
-                            bounds.left() + line.x_for_index(selected_range.end),
+                            origin.x + line.x_for_index(selected_range.end),
                             bounds.bottom(),
                         ),
                     ),
@@ -581,6 +610,7 @@ impl Element for TextElement {
         };
         PrepaintState {
             line: Some(line),
+            origin,
             cursor,
             selection,
         }
@@ -602,25 +632,30 @@ impl Element for TextElement {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
-        if let Some(selection) = prepaint.selection.take() {
-            window.paint_quad(selection)
-        }
         let line = prepaint.line.take().unwrap();
-        line.paint(
-            bounds.origin,
-            window.line_height(),
-            gpui::TextAlign::Left,
-            None,
-            window,
-            cx,
-        )
-        .unwrap();
-
-        if focus_handle.is_focused(window)
-            && let Some(cursor) = prepaint.cursor.take()
-        {
-            window.paint_quad(cursor);
-        }
+        let origin = prepaint.origin;
+        let selection = prepaint.selection.take();
+        let cursor = prepaint.cursor.take();
+        let focused = focus_handle.is_focused(window);
+        // Everything is clipped to the field, so scrolled-away text can't spill
+        // over the border.
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            if let Some(selection) = selection {
+                window.paint_quad(selection)
+            }
+            line.paint(
+                origin,
+                window.line_height(),
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            )
+            .unwrap();
+            if focused && let Some(cursor) = cursor {
+                window.paint_quad(cursor);
+            }
+        });
 
         self.input.update(cx, |input, _cx| {
             input.last_layout = Some(line);
