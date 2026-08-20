@@ -2928,14 +2928,14 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "konvrt"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "konvrt-ui",
 ]
 
 [[package]]
 name = "konvrt-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -2962,7 +2962,7 @@ dependencies = [
 
 [[package]]
 name = "konvrt-ui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "gpui",
